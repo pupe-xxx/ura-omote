@@ -44,6 +44,18 @@ describe('動かす', () => {
     expect(next.fell).toBe('orange');
   });
 
+  it('青と橙は別の面にいるので、同じマスに重なれる。重なったまま一緒に動く', () => {
+    // 青は端で止まり、橙だけが青のいるマスへ入ってくる
+    const s = createState(level({ blue: [-2, 0], orange: [-1, 0] }));
+    const together = move(s, WEST)!;
+    expect(together.blue).toBe('-2,0');
+    expect(together.orange).toBe('-2,0');
+    expect(together.status).toBe('playing');
+    const next = move(together, EAST)!;
+    expect(next.blue).toBe('-1,0');
+    expect(next.orange).toBe('-1,0');
+  });
+
   it('盤の端では止まる。どちらも動けない向きは手にならない', () => {
     const s = createState(level({ blue: [-2, 0], orange: [-2, 1] }));
     expect(move(s, WEST)).toBeNull();

@@ -13,13 +13,20 @@ const PAD = { cx: 360, cy: 820, rx: 164, ry: 54, size: 46 } as const;
 const COLORS = {
   bg: '#0a111b', cell: '#1c2e45', grid: '#2a4060',
   hill: '#6f8fb0', hillTop: '#a9c4de', valley: '#04070b', valleyRim: '#0e1a28',
-  blue: '#4fc3f7', orange: '#ffa040', pad: '#1c2e45', padEdge: '#3d6090', arrow: '#cfd8dc', lost: '#ef5350',
+  blue: '#4fc3f7', orange: '#ffa040', blueMark: '#1e88c8', orangeMark: '#e65100', pad: '#1c2e45', padEdge: '#3d6090', arrow: '#cfd8dc', lost: '#ef5350',
 } as const;
 
 const HINTS: [ja: string, en: string][] = [
   ['下の矢印をタップすると、青と橙が同時に同じ向きへ動く。色の輪がゴール', 'Tap an arrow: blue and orange move together. The rings are their goals'],
-  ['青は山（明るいマス）で止まる。橙は山に入ると落ちる', 'Blue is stopped by hills (bright cells). Orange falls if it enters one'],
-  ['「山にする」を選んでマスをタップすると、山を作れる。谷（暗いマス）は青が落ち、橙が止まる', 'Pick "Raise" and tap a cell to build a hill. Valleys (dark cells) drop blue and stop orange'],
+  ['山（明るいマス）: 青は入れずに止まる。その間に橙だけ進む。橙は山に入ると落ちる（橙の ✕）', 'Hill (bright cell): blue cannot enter and stays put while orange moves on. Orange falls if it enters (orange ✕)'],
+  ['谷（暗いマス）: 橙は入れずに止まる。その間に青だけ進む。青は谷に入ると落ちる（青の ✕）', 'Valley (dark cell): orange cannot enter and stays put while blue moves on. Blue falls if it enters (blue ✕)'],
+  ['「山にする」「谷にする」を選んでマスをタップすると、マスを変えられる（回数に限りあり）', 'Pick "Raise" or "Lower" and tap a cell to change it (limited uses)'],
+];
+
+// 遊び方を覚えるステージの後は、いつもこの早見を出す
+const LEGEND: [ja: string, en: string] = [
+  '✕ はその色の駒が落ちるマス。山: 青は止まる・橙は落ちる ／ 谷: 橙は止まる・青は落ちる',
+  '✕ marks where that color falls. Hill: stops blue, drops orange / Valley: stops orange, drops blue',
 ];
 
 type Tool = 'move' | 'raise' | 'lower';
@@ -76,6 +83,17 @@ function drawCells(ctx: CanvasRenderingContext2D, layout: HexLayout, state: Stat
       hexPath(ctx, x, y, layout.size, 0.6);
       ctx.fillStyle = h > 0 ? COLORS.hillTop : COLORS.valleyRim;
       ctx.fill();
+      // 入ると落ちる駒の色で ✕ を付ける（山は橙、谷は青）
+      const d = layout.size * 0.2;
+      ctx.beginPath();
+      ctx.moveTo(x - d, y - d);
+      ctx.lineTo(x + d, y + d);
+      ctx.moveTo(x + d, y - d);
+      ctx.lineTo(x - d, y + d);
+      ctx.strokeStyle = h > 0 ? COLORS.orangeMark : COLORS.blueMark;
+      ctx.lineWidth = 6;
+      ctx.lineCap = 'round';
+      ctx.stroke();
     }
   }
 }
@@ -148,8 +166,7 @@ export const game: GameDef<State, 'move' | 'edit'> = {
     return t(`残り ${left} 手（★3 は ${state.par} 手）`, `${left} moves left (★3: ${state.par})`);
   },
   hint: (level) => {
-    const hint = HINTS[level];
-    return hint ? t(...hint) : '';
+    return t(...(HINTS[level] ?? LEGEND));
   },
   failText: (state) =>
     state.fell === 'blue' ? t('青が谷に落ちました', 'Blue fell into a valley')
