@@ -29,8 +29,8 @@ const TIPS: Record<NonNullable<Level['tip']>, [ja: string, en: string]> = {
 
 // 遊び方を覚えるステージの後は、いつもこの早見を出す
 const LEGEND: [ja: string, en: string] = [
-  '同じ色のマスは壁（止まる）。違う色のマスは落ちる。灰色は2つとも止まり、黒は2つとも落ちる',
-  'Your own color is a wall (you stop). The other color drops you. Gray stops both, black drops both',
+  '同じ色のマスと相手の駒は壁（止まる）。違う色のマスは落ちる。灰色は2つとも止まり、黒は2つとも落ちる',
+  'Your own color and the other piece are walls (you stop). The other color drops you. Gray stops both, black drops both',
 ];
 
 type Tool = 'move' | 'raise' | 'lower';
@@ -152,11 +152,9 @@ function draw(ctx: CanvasRenderingContext2D, state: State, anim: Anim<State, 'mo
     return { x: from.x + (to.x - from.x) * anim.t, y: from.y + (to.y - from.y) * anim.t };
   };
   const blue = place(state.blue, anim?.from.blue), orange = place(state.orange, anim?.from.orange);
-  // 同じマスにいる時は、左右に少しずらす
-  const shift = state.blue === state.orange ? layout.size * 0.28 : 0;
   const settled = !anim;
-  drawWalker(ctx, layout.size, blue.x - shift, blue.y, COLORS.blue, settled && state.fell === 'blue');
-  drawWalker(ctx, layout.size, orange.x + shift, orange.y, COLORS.orange, settled && state.fell === 'orange');
+  drawWalker(ctx, layout.size, blue.x, blue.y, COLORS.blue, settled && state.fell === 'blue');
+  drawWalker(ctx, layout.size, orange.x, orange.y, COLORS.orange, settled && state.fell === 'orange');
   drawPad(ctx);
 }
 

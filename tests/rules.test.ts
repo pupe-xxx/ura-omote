@@ -45,17 +45,31 @@ describe('動かす', () => {
     expect(next.fell).toBe('orange');
   });
 
-  it('青と橙は別の面にいるので、同じマスに重なれる。重なったまま一緒に動く', () => {
-    // 青は端で止まり、橙だけが青のいるマスへ入ってくる
+  it('2つは同じマスに入れない。止まっている相手にぶつかると、その場に残る', () => {
+    // 青は左のまわりの壁で止まる。橙は青のいるマスへ入ろうとして、青にぶつかる。どちらも動けないので手にならない
     const s = createState(level({ blue: [-2, 0], orange: [-1, 0] }));
-    const together = move(s, WEST)!;
-    expect(together.blue).toBe('-2,0');
-    expect(together.orange).toBe('-2,0');
-    expect(together.status).toBe('playing');
-    const next = move(together, EAST)!;
-    expect(next.blue).toBe('-1,0');
-    expect(next.orange).toBe('-1,0');
+    expect(move(s, WEST)).toBeNull();
+    // 青が青いマスで止まっている時も同じ。橙は青にぶつかって進めない
+    const held = createState(level({ blue: [0, 0], orange: [-1, 0], bumps: [[1, 0, 1]] }));
+    expect(move(held, EAST)).toBeNull();
   });
+
+  it('相手も同じ向きへ動いてマスを空けるなら、後ろから付いて入れる', () => {
+    const s = createState(level({ blue: [0, 0], orange: [-1, 0] }));
+    const next = move(s, EAST)!;
+    expect(next.blue).toBe('1,0');
+    expect(next.orange).toBe('0,0');
+  });
+
+  it('どのステージも、最少の手順の途中で2つが重ならない', () => {
+    LEVELS.forEach((l, i) => {
+      let state = createState(l);
+      for (const action of solve(l, l.par) ?? []) {
+        state = apply(state, action)!;
+        expect(state.blue === state.orange, `ステージ ${i + 1}`).toBe(false);
+      }
+    });
+  }, 60000);
 
   it('灰色の壁では2つとも止まる', () => {
     const s = createState(level({ walls: [[0, 0], [0, 1]] }));

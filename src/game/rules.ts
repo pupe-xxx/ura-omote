@@ -107,10 +107,17 @@ const afterMove = (state: State): State => {
 /**
  * 青と橙を同時に同じ向きへ1歩動かした後の状態を新しく返す（元の状態は変えない）。
  * どちらも動けない向きなら null。落ちるマスに入った駒は落ちて、失敗になる。
+ * 2つは同じマスに入れない。止まっている相手のマスへ入ろうとした駒は、相手にぶつかってその場に残る
+ * （相手も同じ向きへ動いてマスを空けるなら、後ろから付いて入れる）。
  */
 export function move(state: State, dir: number): State | null {
   if (state.status !== 'playing' || !DIRS[dir]) return null;
-  const blue = stepOf(state, 'blue', dir), orange = stepOf(state, 'orange', dir);
+  let blue = stepOf(state, 'blue', dir), orange = stepOf(state, 'orange', dir);
+  // 同じ向きに動くので、行き先が重なるのは「片方が止まっていて、もう片方がそこへ入ろうとした」時だけ
+  if (blue === orange) {
+    blue = state.blue;
+    orange = state.orange;
+  }
   if (blue === state.blue && orange === state.orange) return null;
   const fell: Walker | null = cellFor(state, 'blue', blue) === 'fall' ? 'blue' : cellFor(state, 'orange', orange) === 'fall' ? 'orange' : null;
   return afterMove({ ...state, blue, orange, fell });
