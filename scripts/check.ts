@@ -5,7 +5,8 @@ import { solve } from '../src/game/solve';
 
 LEVELS.forEach((level, i) => {
   const began = performance.now();
-  const best = solve(level, level.par + 1);
+  // par と関係なく、長めに探す（手作りのステージの par を決める時にも使うため）
+  const best = solve(level, 16);
   const ms = Math.round(performance.now() - began);
   console.log(`ステージ ${i + 1}: par ${level.par}・最少 ${best ? best.length : '解けない'}・${ms} ms`);
 });

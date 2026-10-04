@@ -28,6 +28,11 @@ export function boardCells(radius: number): Hex[] {
   return cells;
 }
 
+/** 盤のまわりを1周囲む輪のマス（中心から 半径 + 1 のマス） */
+export function rimCells(radius: number): Hex[] {
+  return boardCells(radius + 1).filter(([q, r]) => !inBoard(q, r, radius));
+}
+
 export function hexDist(a: Hex, b: Hex): number {
   const dq = a[0] - b[0], dr = a[1] - b[1];
   return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;

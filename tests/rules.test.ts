@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { rimCells } from '../src/game/hex';
 import { LEVELS } from '../src/game/levels';
 import { createState, edit, move, starsOf, type Level } from '../src/game/rules';
 import { apply, solve } from '../src/game/solve';
@@ -56,6 +57,35 @@ describe('動かす', () => {
     expect(next.orange).toBe('-1,0');
   });
 
+  it('灰色の壁では2つとも止まる', () => {
+    const s = createState(level({ walls: [[0, 0], [0, 1]] }));
+    expect(move(s, EAST)).toBeNull();
+    const one = move(createState(level({ walls: [[0, 0]] })), EAST)!;
+    expect(one.blue).toBe('-1,0');
+    expect(one.orange).toBe('0,1');
+    expect(one.status).toBe('playing');
+  });
+
+  it('黒い穴には、どちらが入っても落ちる', () => {
+    const blue = move(createState(level({ pits: [[0, 0]] })), EAST)!;
+    expect(blue.status).toBe('failed');
+    expect(blue.fell).toBe('blue');
+    const orange = move(createState(level({ pits: [[0, 1]] })), EAST)!;
+    expect(orange.fell).toBe('orange');
+  });
+
+  it('まわりの壁が無い所から外へ出ると落ちる。壁がある所では止まる', () => {
+    // 青は左端。その左の輪のマス (-3,0) だけ壁が無い
+    const s = createState(level({ blue: [-2, 0], orange: [0, 1], open: [[-3, 0]] }));
+    const next = move(s, WEST)!;
+    expect(next.blue).toBe('-3,0');
+    expect(next.status).toBe('failed');
+    expect(next.fell).toBe('blue');
+    const walled = move(createState(level({ blue: [-2, 0], orange: [0, 1] })), WEST)!;
+    expect(walled.blue).toBe('-2,0');
+    expect(walled.status).toBe('playing');
+  });
+
   it('盤の端では止まる。どちらも動けない向きは手にならない', () => {
     const s = createState(level({ blue: [-2, 0], orange: [-2, 1] }));
     expect(move(s, WEST)).toBeNull();
@@ -97,6 +127,12 @@ describe('マスを変える', () => {
     expect(edit(s, '0,-1', -1)).toBeNull();
   });
 
+  it('壁と穴は変えられない', () => {
+    const s = createState(level({ edits: 1, walls: [[0, -1]], pits: [[0, -2]] }));
+    expect(edit(s, '0,-1', 1)).toBeNull();
+    expect(edit(s, '0,-2', -1)).toBeNull();
+  });
+
   it('駒のいるマス・ゴールのマス・盤の外は変えられない', () => {
     const s = createState(level({ edits: 1 }));
     expect(edit(s, '-1,0', 1)).toBeNull();
@@ -133,10 +169,27 @@ describe('ステージ', () => {
     });
   }, 60000);
 
-  it('駒とゴールは平らなマスにある', () => {
+  it('駒とゴールは平らなマスにある。色のマス・壁・穴は重なっていない', () => {
     LEVELS.forEach((l, i) => {
-      const bumps = new Set(l.bumps.map(([q, r]) => `${q},${r}`));
-      for (const [q, r] of [l.blue, l.orange, l.blueGoal, l.orangeGoal]) expect(bumps.has(`${q},${r}`), `ステージ ${i + 1}`).toBe(false);
+      const special = [...l.bumps, ...(l.walls ?? []), ...(l.pits ?? [])].map(([q, r]) => `${q},${r}`);
+      expect(new Set(special).size, `ステージ ${i + 1}`).toBe(special.length);
+      for (const [q, r] of [l.blue, l.orange, l.blueGoal, l.orangeGoal]) expect(special.includes(`${q},${r}`), `ステージ ${i + 1}`).toBe(false);
+    });
+  });
+
+  it('まわりの壁が無いマスは、どれも盤のすぐ外の輪にある', () => {
+    LEVELS.forEach((l, i) => {
+      const rim = new Set(rimCells(l.radius).map(([q, r]) => `${q},${r}`));
+      for (const [q, r] of l.open ?? []) expect(rim.has(`${q},${r}`), `ステージ ${i + 1}`).toBe(true);
+    });
+  });
+
+  it('新しい仕掛けは、それを覚えるステージより後にしか出てこない', () => {
+    const wallIntro = LEVELS.findIndex((l) => l.tip === 'wall');
+    const edgeIntro = LEVELS.findIndex((l) => l.tip === 'edge');
+    LEVELS.forEach((l, i) => {
+      if ((l.walls ?? []).length + (l.pits ?? []).length > 0) expect(i, `ステージ ${i + 1}`).toBeGreaterThanOrEqual(wallIntro);
+      if ((l.open ?? []).length > 0) expect(i, `ステージ ${i + 1}`).toBeGreaterThanOrEqual(edgeIntro);
     });
   });
 });

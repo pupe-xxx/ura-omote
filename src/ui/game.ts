@@ -1,7 +1,7 @@
 // このゲームの画面。盤と方向ボタンを描き、タップを「動かす・マスを変える」に直して、外枠（shell）に渡す。
-import { DIRS, boardCells, dirTo, hexOf, inBoard, keyOf } from '../game/hex';
+import { DIRS, boardCells, dirTo, hexDist, hexOf, inBoard, keyOf, rimCells } from '../game/hex';
 import { LEVELS } from '../game/levels';
-import { createState, edit, move, starsOf, type State } from '../game/rules';
+import { createState, edit, move, starsOf, type Level, type State } from '../game/rules';
 import { centerOf, hexAt, hexPath, layoutFor, type HexLayout } from './hexview';
 import { t } from './i18n';
 import type { Anim, GameDef } from './shell';
@@ -12,28 +12,33 @@ const BOARD = { x: 0, y: 0, width: 720, height: 720 } as const;
 const PAD = { cx: 360, cy: 820, rx: 164, ry: 54, size: 46 } as const;
 const COLORS = {
   bg: '#0a111b', cell: '#1c2e45', grid: '#2a4060',
-  hill: '#6f8fb0', hillTop: '#a9c4de', valley: '#04070b', valleyRim: '#0e1a28',
-  blue: '#4fc3f7', orange: '#ffa040', blueMark: '#1e88c8', orangeMark: '#e65100', pad: '#1c2e45', padEdge: '#3d6090', arrow: '#cfd8dc', lost: '#ef5350',
+  // マスの色は、そのマスで「止まれる」駒の色。違う色の駒が入ると落ちる
+  blueCell: '#1d5d8c', blueTop: '#4aa3d6', orangeCell: '#8c4f17', orangeTop: '#dd8a34',
+  wall: '#546e7a', wallTop: '#8799a3', rim: '#3b4d57', rimTop: '#56666f', pit: '#020305', pitTop: '#000000', pitEdge: '#5c2323',
+  blue: '#4fc3f7', orange: '#ffa040', pad: '#1c2e45', padEdge: '#3d6090', arrow: '#cfd8dc', lost: '#ef5350',
 } as const;
 
-const HINTS: [ja: string, en: string][] = [
-  ['下の矢印をタップすると、青と橙が同時に同じ向きへ動く。色の輪がゴール', 'Tap an arrow: blue and orange move together. The rings are their goals'],
-  ['山（明るいマス）: 青は入れずに止まる。その間に橙だけ進む。橙は山に入ると落ちる（橙の ✕）', 'Hill (bright cell): blue cannot enter and stays put while orange moves on. Orange falls if it enters (orange ✕)'],
-  ['谷（暗いマス）: 橙は入れずに止まる。その間に青だけ進む。青は谷に入ると落ちる（青の ✕）', 'Valley (dark cell): orange cannot enter and stays put while blue moves on. Blue falls if it enters (blue ✕)'],
-  ['「山にする」「谷にする」を選んでマスをタップすると、マスを変えられる（回数に限りあり）', 'Pick "Raise" or "Lower" and tap a cell to change it (limited uses)'],
-];
+const TIPS: Record<NonNullable<Level['tip']>, [ja: string, en: string]> = {
+  move: ['下の矢印をタップすると、青と橙が同時に同じ向きへ動く。色の輪がゴール。まわりの灰色は壁', 'Tap an arrow: blue and orange move together. The rings are their goals. The gray rim is a wall'],
+  blue: ['青いマス: 青には壁（止まる）。その間に橙だけ進む。橙が入ると落ちる', 'Blue cell: a wall for blue, which stays put while orange moves on. Orange falls if it enters'],
+  orange: ['橙のマス: 橙には壁（止まる）。その間に青だけ進む。青が入ると落ちる', 'Orange cell: a wall for orange, which stays put while blue moves on. Blue falls if it enters'],
+  edit: ['「青にする」「橙にする」を選んでマスをタップすると、マスの色を変えられる（回数に限りあり）', 'Pick "Blue" or "Orange" and tap a cell to change its color (limited uses)'],
+  wall: ['灰色のマスは、2つとも止まる壁。黒いマスは、2つとも落ちる穴', 'A gray cell is a wall that stops both. A black cell is a pit that drops both'],
+  edge: ['まわりの壁が無い所は、外へ出ると落ちる', 'Where the rim wall is missing, stepping outside drops you'],
+};
 
 // 遊び方を覚えるステージの後は、いつもこの早見を出す
 const LEGEND: [ja: string, en: string] = [
-  '✕ はその色の駒が落ちるマス。山: 青は止まる・橙は落ちる ／ 谷: 橙は止まる・青は落ちる',
-  '✕ marks where that color falls. Hill: stops blue, drops orange / Valley: stops orange, drops blue',
+  '同じ色のマスは壁（止まる）。違う色のマスは落ちる。灰色は2つとも止まり、黒は2つとも落ちる',
+  'Your own color is a wall (you stop). The other color drops you. Gray stops both, black drops both',
 ];
 
 type Tool = 'move' | 'raise' | 'lower';
 let tool: Tool = 'move';
 let hasEdits = false;
 
-const layoutOf = (state: State): HexLayout => layoutFor(state.radius, BOARD);
+// まわりの壁まで収まるように、盤より1回り広く取る
+const layoutOf = (state: State): HexLayout => layoutFor(state.radius + 1, BOARD);
 
 /** 方向ボタンの中心。盤の上での向きと同じ並びにする */
 function padCenter(dir: number): { x: number; y: number } {
@@ -69,32 +74,43 @@ function drawPad(ctx: CanvasRenderingContext2D): void {
   }
 }
 
+/** 2色で塗った六角形。外側と、少し小さい内側 */
+function drawBlock(ctx: CanvasRenderingContext2D, layout: HexLayout, cell: string, outer: string, inner: string): void {
+  const { x, y } = centerOf(layout, hexOf(cell));
+  hexPath(ctx, x, y, layout.size, 0.96);
+  ctx.fillStyle = outer;
+  ctx.fill();
+  hexPath(ctx, x, y, layout.size, 0.6);
+  ctx.fillStyle = inner;
+  ctx.fill();
+}
+
 function drawCells(ctx: CanvasRenderingContext2D, layout: HexLayout, state: State): void {
+  // まわりの壁。無い所は何も描かない（そこから外へ落ちる）
+  for (const [q, r] of rimCells(state.radius)) {
+    if (!state.open.includes(keyOf(q, r))) drawBlock(ctx, layout, keyOf(q, r), COLORS.rim, COLORS.rimTop);
+  }
   for (const [q, r] of boardCells(state.radius)) {
     const { x, y } = centerOf(layout, [q, r]);
-    const h = state.height[keyOf(q, r)] ?? 0;
     hexPath(ctx, x, y, layout.size, 0.96);
-    ctx.fillStyle = h > 0 ? COLORS.hill : h < 0 ? COLORS.valley : COLORS.cell;
+    ctx.fillStyle = COLORS.cell;
     ctx.fill();
     ctx.strokeStyle = COLORS.grid;
     ctx.lineWidth = 2;
     ctx.stroke();
-    if (h !== 0) {
-      hexPath(ctx, x, y, layout.size, 0.6);
-      ctx.fillStyle = h > 0 ? COLORS.hillTop : COLORS.valleyRim;
-      ctx.fill();
-      // 入ると落ちる駒の色で ✕ を付ける（山は橙、谷は青）
-      const d = layout.size * 0.2;
-      ctx.beginPath();
-      ctx.moveTo(x - d, y - d);
-      ctx.lineTo(x + d, y + d);
-      ctx.moveTo(x + d, y - d);
-      ctx.lineTo(x - d, y + d);
-      ctx.strokeStyle = h > 0 ? COLORS.orangeMark : COLORS.blueMark;
-      ctx.lineWidth = 6;
-      ctx.lineCap = 'round';
-      ctx.stroke();
-    }
+  }
+  for (const [cell, h] of Object.entries(state.height)) {
+    if (h > 0) drawBlock(ctx, layout, cell, COLORS.blueCell, COLORS.blueTop);
+    else drawBlock(ctx, layout, cell, COLORS.orangeCell, COLORS.orangeTop);
+  }
+  for (const cell of state.walls) drawBlock(ctx, layout, cell, COLORS.wall, COLORS.wallTop);
+  for (const cell of state.pits) {
+    drawBlock(ctx, layout, cell, COLORS.pit, COLORS.pitTop);
+    const { x, y } = centerOf(layout, hexOf(cell));
+    hexPath(ctx, x, y, layout.size, 0.9);
+    ctx.strokeStyle = COLORS.pitEdge;
+    ctx.lineWidth = 4;
+    ctx.stroke();
   }
 }
 
@@ -148,8 +164,8 @@ export const game: GameDef<State, 'move' | 'edit'> = {
   saveKey: 'ura-omote.v1',
   title: 'URA OMOTE',
   howto: t(
-    '青と橙は、同時に同じ向きへ動く。青は山で止まり、谷に落ちる。橙はその逆。2つをそれぞれの色の輪へ届けよう。',
-    'Blue and orange move together. Blue is stopped by hills and falls into valleys; orange is the opposite. Bring each to the ring of its color.',
+    '青と橙は、同時に同じ向きへ動く。同じ色のマスは壁になって止まり、違う色のマスに入ると落ちる。2つをそれぞれの色の輪へ届けよう。',
+    'Blue and orange move together. A cell of your own color is a wall; a cell of the other color drops you. Bring each to the ring of its color.',
   ),
   view: VIEW,
   levelCount: LEVELS.length,
@@ -166,11 +182,12 @@ export const game: GameDef<State, 'move' | 'edit'> = {
     return t(`残り ${left} 手（★3 は ${state.par} 手）`, `${left} moves left (★3: ${state.par})`);
   },
   hint: (level) => {
-    return t(...(HINTS[level] ?? LEGEND));
+    const tip = LEVELS[level].tip;
+    return t(...(tip ? TIPS[tip] : LEGEND));
   },
   failText: (state) =>
-    state.fell === 'blue' ? t('青が谷に落ちました', 'Blue fell into a valley')
-    : state.fell === 'orange' ? t('橙が山の裏側の穴に落ちました', 'Orange fell into the hollow under a hill')
+    state.fell === 'blue' ? t('青が落ちました', 'Blue fell')
+    : state.fell === 'orange' ? t('橙が落ちました', 'Orange fell')
     : t('手数を使い切りました', 'Out of moves'),
 
   buttons(state) {
@@ -178,8 +195,8 @@ export const game: GameDef<State, 'move' | 'edit'> = {
     const none = state.editsLeft === 0;
     return [
       { id: 'move', label: t('動かす', 'Move'), selected: tool === 'move' },
-      { id: 'raise', label: t(`山にする ×${state.editsLeft}`, `Raise ×${state.editsLeft}`), selected: tool === 'raise', disabled: none },
-      { id: 'lower', label: t(`谷にする ×${state.editsLeft}`, `Lower ×${state.editsLeft}`), selected: tool === 'lower', disabled: none },
+      { id: 'raise', label: t(`青にする ×${state.editsLeft}`, `Blue ×${state.editsLeft}`), selected: tool === 'raise', disabled: none },
+      { id: 'lower', label: t(`橙にする ×${state.editsLeft}`, `Orange ×${state.editsLeft}`), selected: tool === 'lower', disabled: none },
     ];
   },
   press(state, id) {
@@ -194,7 +211,7 @@ export const game: GameDef<State, 'move' | 'edit'> = {
     });
     if (dir === undefined) {
       const [q, r] = hexAt(layoutOf(state), x, y);
-      if (y >= BOARD.height || !inBoard(q, r, state.radius)) return null;
+      if (y >= BOARD.height || !inBoard(q, r, state.radius + 1)) return null;
       if (tool !== 'move') {
         const next = edit(state, keyOf(q, r), tool === 'raise' ? 1 : -1);
         if (!next) return { state, sound: 'miss' };
@@ -202,9 +219,8 @@ export const game: GameDef<State, 'move' | 'edit'> = {
         return { state: next, sound: 'hit' };
       }
       // 「動かす」の時は、青の隣のマスをタップしても、その向きへ動く
-      const toward = dirTo(hexOf(state.blue), [q, r]);
-      if (toward < 0 || Math.abs(q - hexOf(state.blue)[0]) > 1 || Math.abs(r - hexOf(state.blue)[1]) > 1) return null;
-      dir = toward;
+      if (hexDist(hexOf(state.blue), [q, r]) !== 1) return null;
+      dir = dirTo(hexOf(state.blue), [q, r]);
     }
     const next = move(state, dir);
     if (!next) return { state, sound: 'miss' };
